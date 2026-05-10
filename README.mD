@@ -17,7 +17,7 @@ A clinician (or researcher) enters a patient's symptom profile — fever, cough,
 
 ---
 
-## 🧠 Technical Stack
+## Technical Stack
 
 | Layer | Technology |
 |---|---|
@@ -52,7 +52,7 @@ disease-outcome-predictor/
 
 ### 1. Clone the repo
 ```bash
-git clone https://github.com/nicolemas27/disease-outcome-predictor.git
+git clone https://github.com/nicolemas27/Consultant-Platform.git
 cd disease-outcome-predictor
 ```
 
