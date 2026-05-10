@@ -1,0 +1,64 @@
+# Dataset
+*.csv
+*.xlsx
+*.xls
+data/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+parts/
+var/
+sdist/
+develop-eggs/
+.installed.cfg
+lib/
+lib64/
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+.env
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Trained model files (regenerated on run)
+*.pkl
+*.pickle
+*.joblib
+*.h5
+*.pt
+*.pth
+
+# Streamlit
+.streamlit/secrets.toml
+
+# IDEs
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+logs/
+
+# SHAP / matplotlib cache
+.cache/

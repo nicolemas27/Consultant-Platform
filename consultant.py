@@ -12,7 +12,7 @@ import warnings
 warnings.filterwarnings("ignore")
 
 # ── Constants ────────────────────────────────────────────────────────────────
-DATASET_PATH = "Disease_symptom_and_patient_profile_dataset.csv"
+DATASET_PATH = "dataset/Disease_symptom_and_patient_profile_dataset.csv"
 
 BINARY_COLS = ["Fever", "Cough", "Fatigue", "Difficulty Breathing"]
 ORDINAL_COLS = {
@@ -32,19 +32,15 @@ def load_and_preprocess(path: str = DATASET_PATH) -> pd.DataFrame:
     """Load the CSV and encode all categorical columns."""
     df = pd.read_csv(path)
 
-    # Binary yes/no columns
     for col in BINARY_COLS:
         df[col] = df[col].map({"Yes": 1, "No": 0})
 
-    # Ordinal columns
     for col, mapping in ORDINAL_COLS.items():
         df[col] = df[col].map(mapping)
 
-    # Gender
     le = LabelEncoder()
-    df["Gender"] = le.fit_transform(df["Gender"])          # Female=0, Male=1
+    df["Gender"] = le.fit_transform(df["Gender"])   # Female=0, Male=1
 
-    # Target
     df[TARGET_COL] = df[TARGET_COL].map({"Positive": 1, "Negative": 0})
 
     return df
@@ -76,9 +72,9 @@ def train_model(df: pd.DataFrame):
     y_proba = model.predict_proba(X_test)[:, 1]
 
     metrics = {
-        "accuracy":  round(accuracy_score(y_test, y_pred) * 100, 2),
-        "roc_auc":   round(roc_auc_score(y_test, y_proba) * 100, 2),
-        "report":    classification_report(y_test, y_pred, output_dict=True),
+        "accuracy": round(accuracy_score(y_test, y_pred) * 100, 2),
+        "roc_auc":  round(roc_auc_score(y_test, y_proba) * 100, 2),
+        "report":   classification_report(y_test, y_pred, output_dict=True),
     }
 
     return model, X_test, y_test, FEATURE_COLS, metrics
@@ -87,15 +83,25 @@ def train_model(df: pd.DataFrame):
 # ── SHAP explanation ──────────────────────────────────────────────────────────
 def explain_single_prediction(model, input_df: pd.DataFrame) -> str:
     """
-    Return a base64-encoded PNG of the SHAP waterfall plot
-    for a single patient input.
-    """
-    explainer   = shap.TreeExplainer(model)
-    shap_values = explainer(input_df)
+    Waterfall plot for a single patient.
 
-    fig, ax = plt.subplots(figsize=(8, 4))
+    shap_values() returns shape (1, n_features, 2) for a binary RF.
+    Index [0, :, 1] gives the 1-D positive-class SHAP values for row 0.
+    """
+    explainer = shap.TreeExplainer(model)
+    sv = explainer.shap_values(input_df)    # shape: (1, n_features, 2)
+    sv_pos = sv[0, :, 1]                    # shape: (n_features,)  — positive class
+    ev_pos = float(explainer.expected_value[1])  # scalar base value
+
+    explanation = shap.Explanation(
+        values        = sv_pos,
+        base_values   = ev_pos,
+        data          = input_df.iloc[0].values,
+        feature_names = list(input_df.columns),
+    )
+
     plt.style.use("dark_background")
-    shap.plots.waterfall(shap_values[0], max_display=8, show=False)
+    shap.plots.waterfall(explanation, max_display=8, show=False)
     plt.tight_layout()
 
     buf = io.BytesIO()
@@ -108,14 +114,18 @@ def explain_single_prediction(model, input_df: pd.DataFrame) -> str:
 
 def explain_global(model, X_test: pd.DataFrame) -> str:
     """
-    Return a base64-encoded PNG of the global SHAP summary bar chart.
+    Global feature importance bar chart.
+
+    shap_values() returns shape (n_samples, n_features, 2).
+    Index [:, :, 1] gives the positive-class SHAP matrix.
     """
-    explainer   = shap.TreeExplainer(model)
-    shap_values = explainer(X_test)
+    explainer = shap.TreeExplainer(model)
+    sv = explainer.shap_values(X_test)     # shape: (n_samples, n_features, 2)
+    sv_pos = sv[:, :, 1]                   # shape: (n_samples, n_features)
 
     plt.style.use("dark_background")
     fig, ax = plt.subplots(figsize=(8, 4))
-    shap.summary_plot(shap_values, X_test, plot_type="bar",
+    shap.summary_plot(sv_pos, X_test, plot_type="bar",
                       show=False, color="#00d4aa")
     plt.tight_layout()
 
@@ -153,10 +163,9 @@ def symptom_correlation(df: pd.DataFrame) -> pd.DataFrame:
 # ── Single-patient prediction ─────────────────────────────────────────────────
 def predict_patient(model, patient: dict) -> dict:
     """
-    Accept a dict of raw patient inputs (same keys as FEATURE_COLS,
-    with original string values) and return prediction + probability.
+    Accept a dict of raw patient inputs and return prediction + probability.
 
-    Example input:
+    Example:
         {
           "Fever": "Yes", "Cough": "No", "Fatigue": "Yes",
           "Difficulty Breathing": "Yes", "Age": 45,
