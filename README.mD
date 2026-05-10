@@ -71,7 +71,6 @@ Disease_symptom_and_patient_profile_dataset.csv
 ```bash
 streamlit run app.py
 ```
----
 
 ## 📊 Dataset
 
