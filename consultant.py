@@ -1,236 +1,179 @@
-import streamlit as st
-from libraries import *
-import openai
+import pandas as pd
+import numpy as np
+import shap
+import matplotlib.pyplot as plt
+import io
+import base64
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder
+from sklearn.metrics import classification_report, accuracy_score, roc_auc_score
+import warnings
+warnings.filterwarnings("ignore")
+
+# ── Constants ────────────────────────────────────────────────────────────────
+DATASET_PATH = "Disease_symptom_and_patient_profile_dataset.csv"
+
+BINARY_COLS = ["Fever", "Cough", "Fatigue", "Difficulty Breathing"]
+ORDINAL_COLS = {
+    "Blood Pressure":    {"Low": 0, "Normal": 1, "High": 2},
+    "Cholesterol Level": {"Low": 0, "Normal": 1, "High": 2},
+}
+TARGET_COL   = "Outcome Variable"
+DISEASE_COL  = "Disease"
+FEATURE_COLS = [
+    "Fever", "Cough", "Fatigue", "Difficulty Breathing",
+    "Age", "Gender", "Blood Pressure", "Cholesterol Level",
+]
 
 
-df = pd.read_csv("Disease_symptom_and_patient_profile_dataset.csv")
+# ── Data loading & preprocessing ─────────────────────────────────────────────
+def load_and_preprocess(path: str = DATASET_PATH) -> pd.DataFrame:
+    """Load the CSV and encode all categorical columns."""
+    df = pd.read_csv(path)
+
+    # Binary yes/no columns
+    for col in BINARY_COLS:
+        df[col] = df[col].map({"Yes": 1, "No": 0})
+
+    # Ordinal columns
+    for col, mapping in ORDINAL_COLS.items():
+        df[col] = df[col].map(mapping)
+
+    # Gender
+    le = LabelEncoder()
+    df["Gender"] = le.fit_transform(df["Gender"])          # Female=0, Male=1
+
+    # Target
+    df[TARGET_COL] = df[TARGET_COL].map({"Positive": 1, "Negative": 0})
+
+    return df
 
 
-# Step 1: Obtain dataset recommendations from GPT-3
-def get_dataset_recommendations(prompt):
-    # If no API key is provided, return default dataset recommendations
-    default_recommendations = ["Disease_symptom_and_patient_profile_dataset.csv"]
-    
-    # Call the GPT-3 API to generate dataset recommendations based on the prompt
-    # Return the default recommendations if no API key is provided
-    if openai.api_key:
-        response = openai.Completion.create(
-            engine="davinci",  # Choose the appropriate GPT-3 engine
-            prompt=prompt,
-            max_tokens=50  # Adjust this value as needed
-        )
-        
-        # Extract and return the recommended datasets from the API response
-        recommended_datasets = response.choices[0].text.split("\n")
-        return recommended_datasets
-    else:
-        return default_recommendations
+# ── Model training ────────────────────────────────────────────────────────────
+def train_model(df: pd.DataFrame):
+    """
+    Train a Random Forest classifier and return
+    (model, X_test, y_test, feature_names, metrics_dict).
+    """
+    X = df[FEATURE_COLS]
+    y = df[TARGET_COL]
 
-# Step 2: Load the recommended dataset
-def load_dataset(dataset_path):
-    # Load the recommended dataset into a pandas DataFrame
-    dataset = pd.read_csv(dataset_path)
-    return dataset
-
-
-def preprocess_data(data):
-    LE = LabelEncoder()
-    data['Fever'] = LE.fit_transform(data['Fever'])
-    data['Cough'] = LE.fit_transform(data['Cough'])
-    data['Fatigue'] = LE.fit_transform(data['Fatigue'])
-    data['Difficulty Breathing'] = LE.fit_transform(data['Difficulty Breathing'])
-    data['Gender'] = LE.fit_transform(data['Gender'])
-
-    data = pd.get_dummies(data, columns=['Blood Pressure', 'Cholesterol Level'], prefix=['BP', 'CL'])
-
-    data['Outcome Variable'] = LE.fit_transform(data['Outcome Variable'])
-    # Calculate the frequency of each category in the dataset
-    category_counts = data['Disease'].value_counts()
-
-    # Create a new column with the frequency values for each category
-    data['Disease_freq'] = data['Disease'].map(category_counts)
-    data = data.drop(columns='Disease',axis=1)
-       
-    return data
-
-df = preprocess_data(df)
-
-# Step 4: Explore the data (EDA)
-def perform_eda(data):
-    # Conduct exploratory data analysis
-    # Use descriptive statistics, data visualization, and statistical analysis
-    # to gain insights into the data
-    # Plot histograms, scatter plots, correlation matrix, etc.
-
-    # For example:
-    # Calculate summary statistics
-    summary_stats = data.describe()
-
-    # Create histograms for numeric columns
-    numeric_cols = data.select_dtypes(include=['int64', 'float64']).columns
-    for col in numeric_cols:
-        plt.figure()
-        data[col].hist()
-        plt.title(f'Histogram of {col}')
-        plt.xlabel(col)
-        plt.ylabel('Frequency')
-        plt.show()
-
-    # Calculate correlation matrix and plot heatmap
-    correlation_matrix = data.corr()
-    plt.figure(figsize=(10, 8))
-    sns.heatmap(correlation_matrix, annot=True, cmap='coolwarm')
-    plt.title('Correlation Heatmap')
-    plt.show()
-
-    # Return the EDA results and insights (you can modify this as needed)
-    return {
-        'summary_stats': summary_stats,
-        'correlation_matrix': correlation_matrix
-    }
-
-
-def identify_feature_engineering_opportunities(data, target):
-    # Identify potential feature engineering opportunities based on EDA results
-    # This could include transforming existing features, creating new derived features,
-    # or selecting relevant features for modeling
-    # Return the identified opportunities
-    
-    # No modifications needed for this step
-    return None
-
-# Call the identify_feature_engineering_opportunities function
-yVar = df['Outcome Variable']
-feature_engineering_opportunities = identify_feature_engineering_opportunities(df, yVar)
-
-# Perform feature engineering
-def perform_feature_engineering(data, opportunities):
-    # Implement the identified feature engineering techniques on the data
-    # This could include feature scaling, one-hot encoding, binning,
-    # feature extraction, or other transformations
-    # Return the engineered features
-    
-    # Random Forest Classifier
-    RNF = RandomForestClassifier(
-        n_estimators=400,
-        criterion='gini',
-        max_depth=9,
-        max_features='sqrt'
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=42, stratify=y
     )
 
-    X_train, X_test, y_train, y_test = train_test_split(data.drop('Outcome Variable', axis=1), data['Outcome Variable'], test_size=0.2)
-
-    RNF.fit(X_train, y_train)
-    preds = RNF.predict(X_test)
-    
-    # Classification report and accuracy score
-    print(accuracy_score(y_test, preds))
-    print(classification_report(y_test, preds))
-    
- # ROC-AUC score and plot
-    roc_auc = roc_auc_score(y_test, preds)
-    y_prob = RNF.predict_proba(X_test)
-    roc_auc_plot = skplt.metrics.plot_roc(y_test, y_prob)
-    st.pyplot(roc_auc_plot.get_figure())
-
-# Confusion matrix heatmap
-    cf_matrix = pd.DataFrame(confusion_matrix(y_test, preds), index=['Real Positive', 'Real Negative'], columns=['Pred Positive', 'Pred Negative'])
-    confusion_matrix_heatmap = sns.heatmap(cf_matrix, annot=True, cmap='Blues_r', cbar=False, linewidth=10)
-    st.pyplot(confusion_matrix_heatmap.figure)  # Display the Seaborn plot using Streamlit
-
-
-    # PCA analysis
-    pca = PCA(n_components=3)
-    X_train_pca = pca.fit_transform(X_train)
-    X_test_pca = pca.transform(X_test)
-    print(X_train_pca.shape, y_train.shape)
-    print(X_test_pca.shape, y_test.shape)
-    print("Explained Variance Ratio:", pca.explained_variance_ratio_)
-    
-    
-    # Linear regression with polynomial features
-    X = data.drop('Outcome Variable', axis=1)
-    y = data['Outcome Variable']
-    poly = PolynomialFeatures(degree=2)
-    X_poly = poly.fit_transform(X)
-    X_train, X_test, y_train, y_test = train_test_split(X_poly, y, test_size=0.2, random_state=42)
-    model = LogisticRegression()
-    model.fit(X_train, y_train)
-    y_pred = model.predict(X_test)
-    mse = mean_squared_error(y_test, y_pred)
-    print("Mean Squared Error:", mse)
-    
-    # Select top k features using ANOVA F-value
-    k = 10
-    X = data.drop(['Outcome Variable'], axis=1)
-    y = data['Outcome Variable']
-    selector = SelectKBest(f_classif, k=k)
-    X_new = selector.fit_transform(X, y)
-    selected_features = X.columns[selector.get_support()]
-    data = data[list(selected_features) + ['Outcome Variable']]
-    
-    # Return the engineered features
-    return data
-
-# Perform feature engineering on the data
-engineered_features = perform_feature_engineering(df, feature_engineering_opportunities)
-
-
-# Step 7: Evaluate the impact
-def evaluate_model_performance(features, target):
-    # Split the data into training and testing sets
-    X_train, X_test, y_train, y_test = train_test_split(features, target, test_size=0.2, random_state=42)
-
-    # Fit a logistic regression model
-    model = LogisticRegression()
+    model = RandomForestClassifier(
+        n_estimators=200,
+        max_depth=10,
+        min_samples_leaf=2,
+        random_state=42,
+        class_weight="balanced",
+    )
     model.fit(X_train, y_train)
 
-    # Evaluate the model's performance
-    accuracy = model.score(X_test, y_test)
+    y_pred  = model.predict(X_test)
+    y_proba = model.predict_proba(X_test)[:, 1]
 
-    # Other evaluation metrics
-    classification_report_str = classification_report(y_test, model.predict(X_test))
-    roc_auc_plot = skplt.metrics.plot_roc(y_test, model.predict_proba(X_test))
-    confusion_matrix_heatmap = sns.heatmap(confusion_matrix(y_test, model.predict(X_test)), annot=True, cmap='Blues_r', cbar=False, linewidth=10)
-
-    # Create a dictionary to hold the evaluation results
-    evaluation_results = {
-        'accuracy': accuracy,
-        'classification_report': classification_report_str,
-        'roc_auc_plot': roc_auc_plot,
-        'confusion_matrix_heatmap': confusion_matrix_heatmap
+    metrics = {
+        "accuracy":  round(accuracy_score(y_test, y_pred) * 100, 2),
+        "roc_auc":   round(roc_auc_score(y_test, y_proba) * 100, 2),
+        "report":    classification_report(y_test, y_pred, output_dict=True),
     }
 
-    return evaluation_results
+    return model, X_test, y_test, FEATURE_COLS, metrics
 
-# Step 8: Iterate and refine
-def iterate_and_refine(data, target):
-    # Iterate on the feature engineering process, experimenting with different techniques
-    # and combinations of features
-    # Refine the feature engineering steps based on model performance and insights
 
-    # Preprocess the data
-    preprocessed_data = preprocess_data(data)
+# ── SHAP explanation ──────────────────────────────────────────────────────────
+def explain_single_prediction(model, input_df: pd.DataFrame) -> str:
+    """
+    Return a base64-encoded PNG of the SHAP waterfall plot
+    for a single patient input.
+    """
+    explainer   = shap.TreeExplainer(model)
+    shap_values = explainer(input_df)
 
-    # Perform EDA
-    eda_results = perform_eda(preprocessed_data)
+    fig, ax = plt.subplots(figsize=(8, 4))
+    plt.style.use("dark_background")
+    shap.plots.waterfall(shap_values[0], max_display=8, show=False)
+    plt.tight_layout()
 
-    # Identify feature engineering opportunities
-    feature_engineering_opportunities = identify_feature_engineering_opportunities(preprocessed_data, target)
+    buf = io.BytesIO()
+    plt.savefig(buf, format="png", dpi=120, bbox_inches="tight",
+                facecolor="#0f1117")
+    buf.seek(0)
+    plt.close()
+    return base64.b64encode(buf.read()).decode()
 
-    # Perform feature engineering
-    engineered_features = perform_feature_engineering(preprocessed_data, feature_engineering_opportunities)
 
-    # Evaluate the impact of feature engineering
-    evaluation_results = evaluate_model_performance(engineered_features, target)
-    return evaluation_results
+def explain_global(model, X_test: pd.DataFrame) -> str:
+    """
+    Return a base64-encoded PNG of the global SHAP summary bar chart.
+    """
+    explainer   = shap.TreeExplainer(model)
+    shap_values = explainer(X_test)
 
-# Example usage
-prompt = "Consultancy area: Med"
-recommended_datasets = get_dataset_recommendations(prompt)
-dataset_path = recommended_datasets[0]  # Assuming the first dataset is selected
-dataset = load_dataset(dataset_path)
-target = dataset['Outcome Variable']  # Use the correct column name here
+    plt.style.use("dark_background")
+    fig, ax = plt.subplots(figsize=(8, 4))
+    shap.summary_plot(shap_values, X_test, plot_type="bar",
+                      show=False, color="#00d4aa")
+    plt.tight_layout()
 
-# Run the feature engineering pipeline
-iterate_and_refine(dataset, target)
+    buf = io.BytesIO()
+    plt.savefig(buf, format="png", dpi=120, bbox_inches="tight",
+                facecolor="#0f1117")
+    buf.seek(0)
+    plt.close()
+    return base64.b64encode(buf.read()).decode()
+
+
+# ── Disease statistics helpers ────────────────────────────────────────────────
+def disease_stats(df: pd.DataFrame) -> pd.DataFrame:
+    """Top diseases by frequency with positive-outcome rate."""
+    stats = (
+        df.groupby(DISEASE_COL)
+        .agg(
+            count=(TARGET_COL, "count"),
+            positive_rate=(TARGET_COL, "mean"),
+        )
+        .sort_values("count", ascending=False)
+        .head(20)
+        .reset_index()
+    )
+    stats["positive_rate"] = (stats["positive_rate"] * 100).round(1)
+    return stats
+
+
+def symptom_correlation(df: pd.DataFrame) -> pd.DataFrame:
+    """Pearson correlation of symptom features with outcome."""
+    corr = df[FEATURE_COLS + [TARGET_COL]].corr()[TARGET_COL].drop(TARGET_COL)
+    return corr.sort_values(ascending=False)
+
+
+# ── Single-patient prediction ─────────────────────────────────────────────────
+def predict_patient(model, patient: dict) -> dict:
+    """
+    Accept a dict of raw patient inputs (same keys as FEATURE_COLS,
+    with original string values) and return prediction + probability.
+
+    Example input:
+        {
+          "Fever": "Yes", "Cough": "No", "Fatigue": "Yes",
+          "Difficulty Breathing": "Yes", "Age": 45,
+          "Gender": "Female", "Blood Pressure": "High",
+          "Cholesterol Level": "Normal"
+        }
+    """
+    row = {}
+    for col in BINARY_COLS:
+        row[col] = 1 if str(patient[col]).strip().lower() == "yes" else 0
+    for col, mapping in ORDINAL_COLS.items():
+        row[col] = mapping.get(str(patient[col]).strip(), 1)
+    row["Gender"] = 0 if str(patient["Gender"]).strip().lower() == "female" else 1
+    row["Age"]    = int(patient["Age"])
+
+    input_df = pd.DataFrame([row])[FEATURE_COLS]
+    prob     = model.predict_proba(input_df)[0][1]
+    label    = "Positive" if prob >= 0.5 else "Negative"
+
+    return {"label": label, "probability": round(prob * 100, 1), "input_df": input_df}
